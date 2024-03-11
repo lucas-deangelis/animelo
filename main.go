@@ -175,7 +175,7 @@ func getTwoRandomAnimes() (anime, anime) {
 	}
 	defer db.Close()
 
-	query := "SELECT * FROM animes ORDER BY fights ASC, RANDOM() LIMIT 2"
+	query := "SELECT * FROM animes WHERE status = 'Completed' ORDER BY fights ASC, RANDOM() LIMIT 2"
 	rows, err := db.Query(query)
 	if err != nil {
 		fmt.Printf("Failed to execute query: %s\n", err)
@@ -202,7 +202,7 @@ func getTwoRandomAnimes() (anime, anime) {
 	return animes[0], animes[1]
 }
 
-func updateElo(winner anime, loser anime) {
+func updateEloInDB(winner anime, loser anime) {
 	db, err := sql.Open("sqlite3", "animes.db")
 	if err != nil {
 		fmt.Printf("Failed to open database: %s\n", err)
@@ -210,27 +210,37 @@ func updateElo(winner anime, loser anime) {
 	}
 	defer db.Close()
 
-	// Calculate Elo changes
-	k := 32
-	expectedWinner := 1 / (1 + math.Pow(10, float64(loser.Elo-winner.Elo)/400))
-	expectedLoser := 1 - expectedWinner
-	eloChangeWinner := int(float64(k) * (1 - expectedWinner))
-	eloChangeLoser := int(float64(k) * (0 - expectedLoser))
+	winner, loser = updateElo(winner, loser)
 
 	// Update Elo in the database
-	updateWinnerQuery := "UPDATE animes SET elo = elo + ?, fights = fights + 1 WHERE anidb_id = ?"
-	_, err = db.Exec(updateWinnerQuery, eloChangeWinner, winner.AnidbID)
+	updateWinnerQuery := "UPDATE animes SET elo = ?, fights = fights + 1 WHERE anidb_id = ?"
+	_, err = db.Exec(updateWinnerQuery, winner.Elo, winner.AnidbID)
 	if err != nil {
 		fmt.Printf("Failed to update winner's Elo: %s\n", err)
 		os.Exit(1)
 	}
 
-	updateLoserQuery := "UPDATE animes SET elo = elo + ?, fights = fights + 1 WHERE anidb_id = ?"
-	_, err = db.Exec(updateLoserQuery, eloChangeLoser, loser.AnidbID)
+	updateLoserQuery := "UPDATE animes SET elo = ?, fights = fights + 1 WHERE anidb_id = ?"
+	_, err = db.Exec(updateLoserQuery, loser.Elo, loser.AnidbID)
 	if err != nil {
 		fmt.Printf("Failed to update loser's Elo: %s\n", err)
 		os.Exit(1)
 	}
+}
+
+func updateElo(winner, loser anime) (anime, anime) {
+	// Calculate Elo changes
+	k := 50
+	expectedWinner := 1 / (1 + math.Pow(10, float64(loser.Elo-winner.Elo)/400))
+	expectedLoser := 1 - expectedWinner
+	eloChangeWinner := int(float64(k) * (1 - expectedWinner))
+	eloChangeLoser := int(float64(k) * (0 - expectedLoser))
+
+	// Update Elo
+	winner.Elo += eloChangeWinner
+	loser.Elo += eloChangeLoser
+
+	return winner, loser
 }
 
 func (m model) Init() tea.Cmd {
@@ -239,9 +249,9 @@ func (m model) Init() tea.Cmd {
 
 func update(cursor string, fight fighting) (tea.Model, tea.Cmd) {
 	if cursor == "up" {
-		updateElo(fight.up, fight.down)
+		updateEloInDB(fight.up, fight.down)
 	} else {
-		updateElo(fight.down, fight.up)
+		updateEloInDB(fight.down, fight.up)
 	}
 
 	ani1, ani2 := getTwoRandomAnimes()
@@ -264,6 +274,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cursor = "up"
 		case "down", "j":
 			m.cursor = "down"
+		case "left", "h":
+			m.cursor = "up"
+			return update(m.cursor, m.fight)
+		case "right", "l":
+			m.cursor = "down"
+			return update(m.cursor, m.fight)
 		case "space", "enter":
 			return update(m.cursor, m.fight)
 		}
@@ -277,15 +293,15 @@ func (m model) View() string {
 	firstItem := m.fight.up.Title
 	secondItem := m.fight.down.Title
 
-	highlightStart := "\033[44m" // Set background to blue
-	reset := "\033[0m"           // Reset to default terminal formatting
+	// highlightStart := "\033[44m" // Set background to blue
+	// reset := "\033[0m"           // Reset to default terminal formatting
 
 	// Update the display based on the current selection
-	if m.cursor == "up" {
-		firstItem = highlightStart + m.fight.up.Title + reset // Highlight the first item
-	} else {
-		secondItem = highlightStart + m.fight.down.Title + reset // Highlight the second item
-	}
+	// if m.cursor == "up" {
+	// 	firstItem = highlightStart + m.fight.up.Title + reset // Highlight the first item
+	// } else {
+	// 	secondItem = highlightStart + m.fight.down.Title + reset // Highlight the second item
+	// }
 
 	// Render the view with items side by side
 	return fmt.Sprintf("%s\n\n%s\nPress q to quit.", firstItem, secondItem)

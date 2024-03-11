@@ -3,3 +3,6 @@ animelo
 
 # Lists
 data/*
+
+# Direnv with Nix
+.direnv/

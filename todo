@@ -1,0 +1,3 @@
+- record fights
+- 'event driven' elo, as in log instead of mutable state
+- clean imports (remove specials, etc)
